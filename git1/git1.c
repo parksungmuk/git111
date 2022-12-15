@@ -1,61 +1,156 @@
+#define SW1 2
+#define SW2 1
+
+#include <Stepper.h>
+
+// 2048:í•œë°”í€´(360ë„), 1024:ë°˜ë°”í€´(180ë„)...
+const int stepsPerRevolution = 2048; 
+// ëª¨í„° ë“œë¼ì´ë¸Œì— ì—°ê²°ëœ í•€ IN4, IN2, IN3, IN1
+Stepper myStepper(stepsPerRevolution,11,9,10,8);  
+Stepper myStepper2(stepsPerRevolution,7,5,3,4);         
+
 #include<Wire.h>
-#include <Servo.h>;
 
-#define servoPin1 D0
-#define servoPin2 D1
-#define servoPin3 D2
+const int MPU_ADDR = 0x68;    // I2Cí†µì‹ ì„ ìœ„í•œ MPU6050ì˜ ì£¼ì†Œ
+int16_t AcX, AcY, AcZ, Tmp, GyX, GyY, GyZ;   // ê°€ì†ë„(Acceleration)ì™€ ìì´ë¡œ(Gyro)
+double angleAcX, angleAcY, angleAcZ;
+double angleGyX, angleGyY, angleGyZ;
 
-Servo servo1;
-Servo servo2;
-Servo servo3;
+const double RADIAN_TO_DEGREE = 180 / 3.14159;  
+const double DEG_PER_SEC = 32767 / 250;    // 1ì´ˆì— íšŒì „í•˜ëŠ” ê°ë„
+// GyX, GyY, GyZ ê°’ì˜ ë²”ìœ„ : -32768 ~ +32767 (16ë¹„íŠ¸ ì •ìˆ˜ë²”ìœ„)
 
-const int MPU = 0x68;//MPU6050 I2CÁÖ¼Ò
-int AcX, AcY, AcZ, Tmp, GyX, GyY, GyZ;
-int Button1 = 2;
-int Button2 = 3;
-void get6050();
-void setup()
-{
-    Wire.begin();
-    Wire.beginTransmission(MPU);
-    Wire.write(0x6B);
-    Wire.write(0);//MPU6050 À» µ¿ÀÛ ´ë±â ¸ğµå·Î º¯°æ
-    Wire.endTransmission(true);
-    Serial.begin(9600);
-    servo.attach(7); //servo ¼­º¸¸ğÅÍ¸¦ 7¹ø ÇÉ¿¡ ¿¬°áÇÑ´Ù.
+
+unsigned long now = 0;   // í˜„ì¬ ì‹œê°„ ì €ì¥ìš© ë³€ìˆ˜
+unsigned long past = 0;  // ì´ì „ ì‹œê°„ ì €ì¥ìš© ë³€ìˆ˜
+double dt = 0;           // í•œ ì‚¬ì´í´ ë™ì•ˆ ê±¸ë¦° ì‹œê°„ ë³€ìˆ˜ 
+
+double averAcX, averAcY, averAcZ;
+double averGyX, averGyY, averGyZ;
+
+void setup() {
+  initSensor();
+  Serial.begin(115200);
+  caliSensor();   //  ì´ˆê¸° ì„¼ì„œ ìº˜ë¦¬ë¸Œë ˆì´ì…˜ í•¨ìˆ˜ í˜¸ì¶œ
+  past = millis(); // pastì— í˜„ì¬ ì‹œê°„ ì €ì¥  
+  myStepper.setSpeed(14); 
+  myStepper2.setSpeed(14);
+
+  pinMode(SW, INPUT);
 }
-void loop()
-{
-    get6050();//¼¾¼­°ª °»½Å
- //¹Ş¾Æ¿Â ¼¾¼­°ªÀ» Ãâ·ÂÇÕ´Ï´Ù.
-    int t = AcY //ÀÚÀÌ·Î¼¾¼­ y°ªÀ» t¿¡ ´ëÀÔÇÑ´Ù.
-        while (1)
-        {
-            if (digitalRead(Button1) == HIGH && digitalRead(Button2) == HIGH && t < -10)
-                //¹ß ÀüÃ¼°¡ ¿À¸£¸·±æ¿¡ ÂøÁöÇÏ´Â ½ÃÁ¡
-            {
-                servo1.write(-t); //-t¸¸Å­ ¹ØÃ¢ÀÇ ¼­º¸¸ğÅÍ¸¦ È¸Àü½ÃÅ²´Ù.
-                servo2.write(-asin(sqrt((tan(t) * 70 / l_1)))); //2,3¹øÂ° ¸ğÅÍ °¡µ¿
-                servo3.write(-asin(sqrt((tan(t) * 70 / l_1))));
-                if (digitalRead(Button1) == LOW && digitalRead(Button2) == LOW)
-                    // ¹ß ÀüÃ¼°¡ Çã°øÀ¸·Î ¶ß´Â ½ÃÁ¡
-                    servo1.write(t); //t¸¸Å­ ¼­º¸¸ğÅÍ¸¦ È¸Àü½ÃÅ²´Ù. ¿ø»óÅÂ·Î º¹±¸µÊ.}
-                servo2.write(asin(sqrt((tan(t) * 70 / l_1)))); //2,3¹øÂ° ¸ğÅÍ ¿øÀ§Ä¡
-                servo3.write(asin(sqrt((tan(t) * 70 / l_1))));
-            }
 
-        }
-    void get6050()
-    {
-        Wire.beginTransmission(MPU);//MPU6050 È£Ãâ
-        Wire.write(0x3B);//AcX ·¹Áö½ºÅÍ À§Ä¡ ¿äÃ»
-        Wire.endTransmission(false);
-        Wire.requestFrom(MPU, 14, true);//14byteÀÇ µ¥ÀÌÅÍ¸¦ ¿äÃ»
-        AcX = Wire.read() << 8 | Wire.read();//µÎ°³ÀÇ ³ª´µ¾îÁø ¹ÙÀÌÆ®¸¦ ÇÏ³ª·Î ÀÌ¾îºÙÀÔ´Ï´Ù.
-        AcY = Wire.read() << 8 | Wire.read();
-        AcZ = Wire.read() << 8 | Wire.read();
-        Tmp = Wire.read() << 8 | Wire.read();
-        GyX = Wire.read() << 8 | Wire.read();
-        GyY = Wire.read() << 8 | Wire.read();
-        GyZ = Wire.read() << 8 | Wire.read();
-    }
+void loop() {
+  getData(); 
+  getDT();
+  angleGyX += ((GyX - averGyX) / DEG_PER_SEC) * dt;
+  angleGyY += ((GyY - averGyY) / DEG_PER_SEC) * dt;
+  angleGyZ += ((GyZ - averGyZ) / DEG_PER_SEC) * dt;
+  
+  Serial.print("Angle Gyro X:");
+  Serial.print(angleGyX);
+  Serial.print("\t\t Angle Gyro y:");
+  Serial.print(angleGyY);  
+  Serial.print("\t\t Angle Gyro Z:");
+  Serial.println(angleGyZ);  
+  delay(20);
+
+  int sw = digitalRead(SW1);
+ int sw2 = digitalRead(SW2);
+
+
+//put aë‘ bëŠ” ê°ê° 1ê³¼ 4; nì¸µ: n+4(n-1) = 5n-4
+//ê²½ì‚¬ ë†’ì´: h
+//h=5n-4ì—ì„œ n=(h+4)/5
+//ì›ì£¼ìœ¨: 15
+//ë°”í€´ íšŒì „ìˆ˜: k
+//15*k=5n-4
+//k=(5n-4)/15
+
+//AcX: ìì´ë¡œì„¼ì„œê°€ ì¸¡ì •í•œ ì˜¤ë¥´ë§‰ê¸¸ ê°ë„
+//h: ì˜¤ë¥´ë§‰ê¸¸ì´ ê¸°ìš¸ì–´ì§„ ê±°ë¦¬
+//n: ë§‰ëŒ€1ì´ ì›€ì§ì—¬ì•¼í•˜ëŠ” ê±°ë¦¬
+//k: ì„œë³´ëª¨í„°1 ë°”í€´ íšŒì „ ìˆ˜
+
+h=0; k=0;//ì•„ì§ ì° ê¸°ìš¸ê¸°ê°€ ì—†ìœ¼ë¯€ë¡œ 0ìœ¼ë¡œ ì´ˆê¸°í™”
+while(1){
+
+//ì„œë³´ëª¨í„°ë¥¼ ëª‡ ë°”í€´(k) ëŒë ¤ì•¼í•˜ëŠ”ê°€
+if(h!=0) //ì´ë¯¸ ì° ê¸°ìš¸ê¸°ê°€ ì¡´ì¬í•œë‹¤ë©´
+{
+tan(h/30)=AcX;ì´ë¯€ë¡œ
+h=tan^(-1)(AcX)*30
+n=(h+4)/5;
+k=(5n-4)/15;}
+
+//ì„œë³´ëª¨í„°1 íšŒì „; // kë°”í€´ down
+for(i=0; i<k; i)
+myStepper.step(stepsPerRevolution);
+
+//ì„œë³´ëª¨í„° 2 íšŒì „; // forward
+myStepper2.step(stepsPerRevolution);
+
+if (sw1==HIGH && sw==HIGH)
+{
+h=angleGyX; // ê¸°ìš¸ê¸°ë¥¼ ìì´ë¡œì„¼ì„œì—ì„œ ì¸¡ì •í•œ ê°’ìœ¼ë¡œ ì—…ë°ì´íŠ¸
+}
+
+if (sw==LOW && sw1==LOW)
+
+
+//ì„œë³´ëª¨í„°2 íšŒì „; // backward
+for(i=0; i<k; i)
+myStepper.step(-stepsPerRevolution);
+
+//ì„œë³´ëª¨í„°1 íšŒì „; // -kë°”í€´ up
+myStepper2.step(-stepsPerRevolution);
+}
+
+
+
+}
+
+
+
+void initSensor() {
+  Wire.begin();
+  Wire.beginTransmission(MPU_ADDR);   // I2C í†µì‹ ìš© ì–´ë“œë ˆìŠ¤(ì£¼ì†Œ)
+  Wire.write(0x6B);    // MPU6050ê³¼ í†µì‹ ì„ ì‹œì‘í•˜ê¸° ìœ„í•´ì„œëŠ” 0x6Bë²ˆì§€ì—    
+  Wire.write(0);
+  Wire.endTransmission(true);
+}
+
+void getData() {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B);   // AcX ë ˆì§€ìŠ¤í„° ìœ„ì¹˜(ì£¼ì†Œ)ë¥¼ ì§€ì¹­í•©ë‹ˆë‹¤
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_ADDR, 14, true);  // AcX ì£¼ì†Œ ì´í›„ì˜ 14byteì˜ ë°ì´í„°ë¥¼ ìš”ì²­
+  AcX = Wire.read() << 8 | Wire.read(); //ë‘ ê°œì˜ ë‚˜ë‰˜ì–´ì§„ ë°”ì´íŠ¸ë¥¼ í•˜ë‚˜ë¡œ ì´ì–´ ë¶™ì—¬ì„œ ê° ë³€ìˆ˜ì— ì €ì¥
+  AcY = Wire.read() << 8 | Wire.read();
+  AcZ = Wire.read() << 8 | Wire.read();
+  Tmp = Wire.read() << 8 | Wire.read();
+  GyX = Wire.read() << 8 | Wire.read();
+  GyY = Wire.read() << 8 | Wire.read();
+  GyZ = Wire.read() << 8 | Wire.read();
+}
+
+// loop í•œ ì‚¬ì´í´ë™ì•ˆ ê±¸ë¦¬ëŠ” ì‹œê°„ì„ ì•Œê¸°ìœ„í•œ í•¨ìˆ˜
+void getDT() {
+  now = millis();   
+  dt = (now - past) / 1000.0;  
+  past = now;
+}
+
+// ì„¼ì„œì˜ ì´ˆê¸°ê°’ì„ 10íšŒ ì •ë„ í‰ê· ê°’ìœ¼ë¡œ êµ¬í•˜ì—¬ ì €ì¥í•˜ëŠ” í•¨ìˆ˜
+void caliSensor() {
+  double sumAcX = 0 , sumAcY = 0, sumAcZ = 0;
+  double sumGyX = 0 , sumGyY = 0, sumGyZ = 0;
+  getData();
+  for (int i=0;i<10;i++) {
+    getData();
+    sumAcX+=AcX;  sumAcY+=AcY;  sumAcZ+=AcZ;
+    sumGyX+=GyX;  sumGyY+=GyY;  sumGyZ+=GyZ;
+    delay(50);
+  }
+  averAcX=sumAcX/10;  averAcY=sumAcY/10;  averAcZ=sumAcY/10;
+  averGyX=sumGyX/10;  averGyY=sumGyY/10;  averGyZ=sumGyZ/10;
+}
